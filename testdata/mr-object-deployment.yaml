@@ -1,0 +1,309 @@
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: deployment
+    crossplane.io/external-create-pending: "2026-05-10T14:07:38Z"
+    crossplane.io/external-create-succeeded: "2026-05-10T14:07:38Z"
+    crossplane.io/external-name: sample-service-deployment
+  creationTimestamp: "2026-05-10T14:07:38Z"
+  finalizers:
+  - finalizer.managedresource.crossplane.io
+  generation: 7
+  labels:
+    crossplane.io/composite: sample-service
+  name: sample-service-deployment
+  namespace: sample-application-dev
+  ownerReferences:
+  - apiVersion: platform.homelab.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: sample-service
+    uid: 9285c9f1-5544-4e82-8591-a1af9bef2ab3
+  resourceVersion: "12812259"
+  uid: 82a2506e-cbd6-421e-8281-af7a96367365
+spec:
+  forProvider:
+    manifest:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        labels:
+          app.platform.homelab.io/environment: dev
+          app.platform.homelab.io/name: sample-service
+          app.platform.homelab.io/owner: team-platform
+        name: sample-service
+        namespace: sample-application-dev
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app.kubernetes.io/name: sample-service
+            app.platform.homelab.io/environment: dev
+        template:
+          metadata:
+            annotations:
+              prometheus.io/path: /metrics
+              prometheus.io/port: "8080"
+              prometheus.io/scrape: "true"
+            labels:
+              app.kubernetes.io/name: sample-service
+              app.platform.homelab.io/environment: dev
+              app.platform.homelab.io/name: sample-service
+              app.platform.homelab.io/owner: team-platform
+          spec:
+            containers:
+            - envFrom:
+              - configMapRef:
+                  name: sample-service-config
+              - secretRef:
+                  name: dummy-secret-secret
+              image: ghcr.io/mohamediag/sample-service:b36d289
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: http
+                initialDelaySeconds: 10
+                periodSeconds: 10
+                timeoutSeconds: 2
+              name: sample-service
+              ports:
+              - containerPort: 8080
+                name: http
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: http
+                initialDelaySeconds: 5
+                periodSeconds: 5
+                timeoutSeconds: 2
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+                requests:
+                  cpu: 25m
+                  memory: 32Mi
+  managementPolicies:
+  - '*'
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default
+  readiness:
+    policy: SuccessfulCreate
+  watch: false
+status:
+  atProvider:
+    manifest:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        annotations:
+          deployment.kubernetes.io/revision: "6"
+        creationTimestamp: "2026-05-10T14:07:38Z"
+        generation: 6
+        labels:
+          app.platform.homelab.io/environment: dev
+          app.platform.homelab.io/name: sample-service
+          app.platform.homelab.io/owner: team-platform
+        managedFields:
+        - apiVersion: apps/v1
+          fieldsType: FieldsV1
+          fieldsV1:
+            f:metadata:
+              f:labels:
+                f:app.platform.homelab.io/environment: {}
+                f:app.platform.homelab.io/name: {}
+                f:app.platform.homelab.io/owner: {}
+            f:spec:
+              f:replicas: {}
+              f:selector: {}
+              f:template:
+                f:metadata:
+                  f:annotations:
+                    f:prometheus.io/path: {}
+                    f:prometheus.io/port: {}
+                    f:prometheus.io/scrape: {}
+                  f:labels:
+                    f:app.kubernetes.io/name: {}
+                    f:app.platform.homelab.io/environment: {}
+                    f:app.platform.homelab.io/name: {}
+                    f:app.platform.homelab.io/owner: {}
+                f:spec:
+                  f:containers:
+                    k:{"name":"sample-service"}:
+                      .: {}
+                      f:envFrom: {}
+                      f:image: {}
+                      f:livenessProbe:
+                        f:httpGet:
+                          f:path: {}
+                          f:port: {}
+                        f:initialDelaySeconds: {}
+                        f:periodSeconds: {}
+                        f:timeoutSeconds: {}
+                      f:name: {}
+                      f:ports:
+                        k:{"containerPort":8080,"protocol":"TCP"}:
+                          .: {}
+                          f:containerPort: {}
+                          f:name: {}
+                      f:readinessProbe:
+                        f:httpGet:
+                          f:path: {}
+                          f:port: {}
+                        f:initialDelaySeconds: {}
+                        f:periodSeconds: {}
+                        f:timeoutSeconds: {}
+                      f:resources:
+                        f:limits:
+                          f:cpu: {}
+                          f:memory: {}
+                        f:requests:
+                          f:cpu: {}
+                          f:memory: {}
+          manager: provider-kubernetes/sample-service-deployment
+          operation: Apply
+          time: "2026-05-10T18:32:33Z"
+        - apiVersion: apps/v1
+          fieldsType: FieldsV1
+          fieldsV1:
+            f:metadata:
+              f:annotations:
+                .: {}
+                f:deployment.kubernetes.io/revision: {}
+            f:status:
+              f:availableReplicas: {}
+              f:conditions:
+                .: {}
+                k:{"type":"Available"}:
+                  .: {}
+                  f:lastTransitionTime: {}
+                  f:lastUpdateTime: {}
+                  f:message: {}
+                  f:reason: {}
+                  f:status: {}
+                  f:type: {}
+                k:{"type":"Progressing"}:
+                  .: {}
+                  f:lastTransitionTime: {}
+                  f:lastUpdateTime: {}
+                  f:message: {}
+                  f:reason: {}
+                  f:status: {}
+                  f:type: {}
+              f:observedGeneration: {}
+              f:readyReplicas: {}
+              f:replicas: {}
+              f:updatedReplicas: {}
+          manager: kube-controller-manager
+          operation: Update
+          subresource: status
+          time: "2026-05-10T18:32:44Z"
+        name: sample-service
+        namespace: sample-application-dev
+        resourceVersion: "12811331"
+        uid: 4abf943a-14f3-4627-8ecd-55bb04ee1998
+      spec:
+        progressDeadlineSeconds: 600
+        replicas: 1
+        revisionHistoryLimit: 10
+        selector:
+          matchLabels:
+            app.kubernetes.io/name: sample-service
+            app.platform.homelab.io/environment: dev
+        strategy:
+          rollingUpdate:
+            maxSurge: 25%
+            maxUnavailable: 25%
+          type: RollingUpdate
+        template:
+          metadata:
+            annotations:
+              prometheus.io/path: /metrics
+              prometheus.io/port: "8080"
+              prometheus.io/scrape: "true"
+            creationTimestamp: null
+            labels:
+              app.kubernetes.io/name: sample-service
+              app.platform.homelab.io/environment: dev
+              app.platform.homelab.io/name: sample-service
+              app.platform.homelab.io/owner: team-platform
+          spec:
+            containers:
+            - envFrom:
+              - configMapRef:
+                  name: sample-service-config
+              - secretRef:
+                  name: dummy-secret-secret
+              image: ghcr.io/mohamediag/sample-service:b36d289
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                failureThreshold: 3
+                httpGet:
+                  path: /healthz
+                  port: http
+                  scheme: HTTP
+                initialDelaySeconds: 10
+                periodSeconds: 10
+                successThreshold: 1
+                timeoutSeconds: 2
+              name: sample-service
+              ports:
+              - containerPort: 8080
+                name: http
+                protocol: TCP
+              readinessProbe:
+                failureThreshold: 3
+                httpGet:
+                  path: /readyz
+                  port: http
+                  scheme: HTTP
+                initialDelaySeconds: 5
+                periodSeconds: 5
+                successThreshold: 1
+                timeoutSeconds: 2
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+                requests:
+                  cpu: 25m
+                  memory: 32Mi
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+            dnsPolicy: ClusterFirst
+            restartPolicy: Always
+            schedulerName: default-scheduler
+            securityContext: {}
+            terminationGracePeriodSeconds: 30
+      status:
+        availableReplicas: 1
+        conditions:
+        - lastTransitionTime: "2026-05-10T14:07:49Z"
+          lastUpdateTime: "2026-05-10T14:07:49Z"
+          message: Deployment has minimum availability.
+          reason: MinimumReplicasAvailable
+          status: "True"
+          type: Available
+        - lastTransitionTime: "2026-05-10T14:07:38Z"
+          lastUpdateTime: "2026-05-10T18:32:44Z"
+          message: ReplicaSet "sample-service-6ddb954bdb" has successfully progressed.
+          reason: NewReplicaSetAvailable
+          status: "True"
+          type: Progressing
+        observedGeneration: 6
+        readyReplicas: 1
+        replicas: 1
+        updatedReplicas: 1
+  conditions:
+  - lastTransitionTime: "2026-05-10T14:07:39Z"
+    reason: Available
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-05-10T18:32:34Z"
+    observedGeneration: 7
+    reason: ReconcileSuccess
+    status: "True"
+    type: Synced

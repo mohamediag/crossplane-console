@@ -1,0 +1,295 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  creationTimestamp: "2026-05-09T16:40:42Z"
+  generation: 1
+  labels:
+    argocd.argoproj.io/instance: crossplane-platform
+  name: apps.platform.homelab.io
+  ownerReferences:
+  - apiVersion: apiextensions.crossplane.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: CompositeResourceDefinition
+    name: apps.platform.homelab.io
+    uid: 9b4ce90d-0b46-460f-b005-481624e406a0
+  resourceVersion: "12452552"
+  uid: a18be3d9-923d-4671-85df-87aa20d78039
+spec:
+  conversion:
+    strategy: None
+  group: platform.homelab.io
+  names:
+    categories:
+    - composite
+    kind: App
+    listKind: AppList
+    plural: apps
+    singular: app
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Synced')].status
+      name: SYNCED
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: READY
+      type: string
+    - jsonPath: .spec.crossplane.compositionRef.name
+      name: COMPOSITION
+      type: string
+    - jsonPath: .spec.crossplane.compositionRevisionRef.name
+      name: COMPOSITIONREVISION
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: AGE
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            properties:
+              name:
+                maxLength: 63
+                type: string
+            type: object
+          spec:
+            properties:
+              crossplane:
+                description: Configures how Crossplane will reconcile this composite
+                  resource
+                properties:
+                  compositionRef:
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  compositionRevisionRef:
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  compositionRevisionSelector:
+                    properties:
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    required:
+                    - matchLabels
+                    type: object
+                  compositionSelector:
+                    properties:
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    required:
+                    - matchLabels
+                    type: object
+                  compositionUpdatePolicy:
+                    default: Automatic
+                    enum:
+                    - Automatic
+                    - Manual
+                    type: string
+                  resourceRefs:
+                    items:
+                      properties:
+                        apiVersion:
+                          type: string
+                        kind:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                      - apiVersion
+                      - kind
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                type: object
+              parameters:
+                properties:
+                  config:
+                    additionalProperties:
+                      type: string
+                    default: {}
+                    type: object
+                  environment:
+                    enum:
+                    - dev
+                    - staging
+                    - prod
+                    type: string
+                  exposure:
+                    properties:
+                      host:
+                        minLength: 1
+                        type: string
+                      type:
+                        enum:
+                        - public
+                        - private
+                        - none
+                        type: string
+                    required:
+                    - type
+                    - host
+                    type: object
+                    x-kubernetes-validations:
+                    - message: exposure.host is required when exposure.type is public
+                      rule: self.type != 'public' || size(self.host) > 0
+                  healthCheck:
+                    properties:
+                      liveness:
+                        minLength: 1
+                        type: string
+                      readiness:
+                        minLength: 1
+                        type: string
+                    required:
+                    - liveness
+                    - readiness
+                    type: object
+                  image:
+                    minLength: 1
+                    type: string
+                  metrics:
+                    properties:
+                      enabled:
+                        type: boolean
+                      path:
+                        type: string
+                    required:
+                    - enabled
+                    - path
+                    type: object
+                  name:
+                    minLength: 1
+                    type: string
+                  owner:
+                    minLength: 1
+                    type: string
+                  port:
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  replicas:
+                    minimum: 1
+                    type: integer
+                  resources:
+                    properties:
+                      limits:
+                        properties:
+                          cpu:
+                            type: string
+                          memory:
+                            type: string
+                        required:
+                        - cpu
+                        - memory
+                        type: object
+                      requests:
+                        properties:
+                          cpu:
+                            type: string
+                          memory:
+                            type: string
+                        required:
+                        - cpu
+                        - memory
+                        type: object
+                    required:
+                    - requests
+                    - limits
+                    type: object
+                  secrets:
+                    default: []
+                    items:
+                      type: string
+                    type: array
+                required:
+                - name
+                - owner
+                - image
+                - environment
+                - port
+                - replicas
+                - resources
+                - exposure
+                - healthCheck
+                - metrics
+                type: object
+            required:
+            - parameters
+            type: object
+          status:
+            properties:
+              conditions:
+                description: Conditions of the resource.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      type: integer
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    categories:
+    - composite
+    kind: App
+    listKind: AppList
+    plural: apps
+    singular: app
+  conditions:
+  - lastTransitionTime: "2026-05-09T16:40:42Z"
+    message: no conflicts found
+    reason: NoConflicts
+    status: "True"
+    type: NamesAccepted
+  - lastTransitionTime: "2026-05-09T16:40:42Z"
+    message: the initial names have been accepted
+    reason: InitialNamesAccepted
+    status: "True"
+    type: Established
+  storedVersions:
+  - v1alpha1

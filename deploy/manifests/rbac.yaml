@@ -1,0 +1,32 @@
+# Read-only, cluster-wide RBAC for the console.
+#
+# Why apiGroups "*": MR and XR API groups are created at runtime by providers
+# and XRDs, and composed children can be any kind — a static ClusterRole
+# cannot enumerate them. The verbs stay strictly read-only.
+#
+# NOTE this includes read access to Secrets. For hardened installs, replace
+# the wildcard rule with an enumerated list of your MR/XR groups, e.g.:
+#   - apiGroups: ["kubernetes.m.crossplane.io", "s3.aws.m.upbound.io", "platform.homelab.io"]
+#     resources: ["*"]
+#     verbs: ["get", "list", "watch"]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crossplane-console
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: crossplane-console
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: crossplane-console
+subjects:
+  - kind: ServiceAccount
+    name: crossplane-console
+    namespace: crossplane-console

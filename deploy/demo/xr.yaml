@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: demo.crossplane.io/v1alpha1
+kind: DemoApp
+metadata:
+  name: my-demo-app
+  namespace: demo
+spec:
+  parameters:
+    message: hello from the crossplane console demo

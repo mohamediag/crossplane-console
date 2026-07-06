@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: crossplane-console
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: crossplane-console
+  namespace: crossplane-console
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crossplane-console
+  namespace: crossplane-console
+  labels:
+    app: crossplane-console
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crossplane-console
+  template:
+    metadata:
+      labels:
+        app: crossplane-console
+    spec:
+      serviceAccountName: crossplane-console
+      containers:
+        - name: console
+          image: ghcr.io/mohamediag/crossplane-console:latest # pin a tag in real installs
+          args: ["--listen", ":8080"]
+          ports:
+            - containerPort: 8080
+              name: http
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crossplane-console
+  namespace: crossplane-console
+spec:
+  selector:
+    app: crossplane-console
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

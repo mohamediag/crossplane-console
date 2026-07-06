@@ -1,0 +1,27 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: demoapps.demo.crossplane.io
+spec:
+  scope: Namespaced
+  group: demo.crossplane.io
+  names:
+    kind: DemoApp
+    plural: demoapps
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  properties:
+                    message:
+                      type: string
+                      default: hello from crossplane
