@@ -6,6 +6,8 @@ import { fetchGraph, fetchMeta } from "./api/client";
 import { useGraphStore } from "./store/graphStore";
 import { GraphPage } from "./pages/GraphPage";
 import { ResourcesPage } from "./pages/ResourcesPage";
+import { PlatformPage } from "./pages/PlatformPage";
+import { SearchPalette } from "./components/search/SearchPalette";
 
 export default function App() {
   const connected = useGraphStore((s) => s.connected);
@@ -39,6 +41,7 @@ export default function App() {
           {[
             { to: "/graph", label: "Graph" },
             { to: "/resources", label: "Resources" },
+            { to: "/platform", label: "Platform" },
           ].map((l) => (
             <NavLink
               key={l.to}
@@ -52,6 +55,18 @@ export default function App() {
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-3 text-xs">
+          <button
+            onClick={() =>
+              window.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+              )
+            }
+            className="flex items-center gap-2 rounded-md border border-zinc-200 px-2.5 py-1 text-zinc-500 hover:bg-zinc-50"
+            title="Search (⌘K)"
+          >
+            <span>Search</span>
+            <kbd className="rounded bg-zinc-100 px-1 text-[10px]">⌘K</kbd>
+          </button>
           {meta.data && !meta.data.crossplaneDetected && (
             <span className="rounded bg-amber-100 px-2 py-1 font-medium text-amber-800">
               Crossplane not detected in this cluster
@@ -74,9 +89,11 @@ export default function App() {
         <Routes>
           <Route path="/graph" element={<GraphPage />} />
           <Route path="/resources" element={<ResourcesPage />} />
+          <Route path="/platform" element={<PlatformPage />} />
           <Route path="*" element={<Navigate to="/graph" replace />} />
         </Routes>
       </main>
+      <SearchPalette />
     </div>
   );
 }

@@ -1,0 +1,288 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositionRevision
+metadata:
+  creationTimestamp: "2026-05-09T16:44:37Z"
+  generation: 1
+  labels:
+    argocd.argoproj.io/instance: crossplane-platform
+    crossplane.io/composition-hash: 1900714ed9d8ce373cba03c74db2a82ca80ae8a299ad14b1929bd4a399c064e
+    crossplane.io/composition-name: app-kubernetes
+  name: app-kubernetes-1900714
+  ownerReferences:
+  - apiVersion: apiextensions.crossplane.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Composition
+    name: app-kubernetes
+    uid: bc9b268e-fcf8-4904-a48e-bc40601a8de8
+  resourceVersion: "12453577"
+  uid: 67860574-b57b-4508-bf58-f3c7a9f9aefe
+spec:
+  compositeTypeRef:
+    apiVersion: platform.homelab.io/v1alpha1
+    kind: App
+  mode: Pipeline
+  pipeline:
+  - functionRef:
+      name: function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      inline:
+        template: |
+          {{- $p := .observed.composite.resource.spec.parameters -}}
+          {{- $serviceName := $p.name -}}
+          {{- $name := $serviceName | lower | replace "_" "-" | replace "." "-" | replace " " "-" -}}
+          {{- $owner := $p.owner -}}
+          {{- $env := $p.environment -}}
+          {{- $ns := printf "%s-%s" $name $env -}}
+          {{- $labels := dict "app.platform.homelab.io/name" $serviceName "app.platform.homelab.io/owner" $owner "app.platform.homelab.io/environment" $env -}}
+          {{- $host := $p.exposure.host -}}
+          {{- if and (eq $p.exposure.type "public") (ne $env "prod") -}}
+            {{- $parts := splitList "." $p.exposure.host -}}
+            {{- if ge (len $parts) 2 -}}
+              {{- $head := index $parts 0 -}}
+              {{- $tail := join "." (slice $parts 1) -}}
+              {{- $host = printf "%s-%s.%s" $head $env $tail -}}
+            {{- else -}}
+              {{- $host = printf "%s-%s" $p.exposure.host $env -}}
+            {{- end -}}
+          {{- end -}}
+          {{- $xrns := .observed.composite.resource.metadata.namespace -}}
+          ---
+          apiVersion: kubernetes.m.crossplane.io/v1alpha1
+          kind: Object
+          metadata:
+            name: {{ printf "%s-namespace" $name }}
+            namespace: {{ $xrns }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: namespace
+          spec:
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            forProvider:
+              manifest:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: {{ $ns }}
+                  labels: {{ toYaml $labels | nindent 22 }}
+          ---
+          apiVersion: kubernetes.m.crossplane.io/v1alpha1
+          kind: Object
+          metadata:
+            name: {{ printf "%s-configmap" $name }}
+            namespace: {{ $xrns }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: configmap
+          spec:
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            forProvider:
+              manifest:
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  name: {{ $name }}-config
+                  namespace: {{ $ns }}
+                  labels: {{ toYaml $labels | nindent 22 }}
+                data:
+                  {{- if gt (len $p.config) 0 }}
+                  {{- range $k, $v := $p.config }}
+                  {{ $k }}: {{ $v | quote }}
+                  {{- end }}
+                  {{- else }} {}
+                  {{- end }}
+          ---
+          apiVersion: kubernetes.m.crossplane.io/v1alpha1
+          kind: Object
+          metadata:
+            name: {{ printf "%s-deployment" $name }}
+            namespace: {{ $xrns }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: deployment
+          spec:
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            forProvider:
+              manifest:
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: {{ $name }}
+                  namespace: {{ $ns }}
+                  labels: {{ toYaml $labels | nindent 22 }}
+                spec:
+                  replicas: {{ $p.replicas }}
+                  selector:
+                    matchLabels:
+                      app.kubernetes.io/name: {{ $name }}
+                      app.platform.homelab.io/environment: {{ $env }}
+                  template:
+                    metadata:
+                      labels:
+                        app.kubernetes.io/name: {{ $name }}
+                        {{- range $k, $v := $labels }}
+                        {{ $k }}: {{ $v | quote }}
+                        {{- end }}
+                      {{- if $p.metrics.enabled }}
+                      annotations:
+                        prometheus.io/scrape: "true"
+                        prometheus.io/path: {{ $p.metrics.path | quote }}
+                        prometheus.io/port: {{ printf "%d" $p.port | quote }}
+                      {{- end }}
+                    spec:
+                      containers:
+                        - name: {{ $name }}
+                          image: {{ $p.image }}
+                          ports:
+                            - containerPort: {{ $p.port }}
+                              name: http
+                          resources:
+                            requests:
+                              cpu: {{ $p.resources.requests.cpu | quote }}
+                              memory: {{ $p.resources.requests.memory | quote }}
+                            limits:
+                              cpu: {{ $p.resources.limits.cpu | quote }}
+                              memory: {{ $p.resources.limits.memory | quote }}
+                          livenessProbe:
+                            httpGet:
+                              path: {{ $p.healthCheck.liveness }}
+                              port: http
+                            initialDelaySeconds: 10
+                            periodSeconds: 10
+                            timeoutSeconds: 2
+                          readinessProbe:
+                            httpGet:
+                              path: {{ $p.healthCheck.readiness }}
+                              port: http
+                            initialDelaySeconds: 5
+                            periodSeconds: 5
+                            timeoutSeconds: 2
+                          envFrom:
+                            - configMapRef:
+                                name: {{ $name }}-config
+                            {{- range $secret := $p.secrets }}
+                            - secretRef:
+                                name: {{ printf "%s-secret" ($secret | lower | replace "_" "-") }}
+                            {{- end }}
+          ---
+          apiVersion: kubernetes.m.crossplane.io/v1alpha1
+          kind: Object
+          metadata:
+            name: {{ printf "%s-service" $name }}
+            namespace: {{ $xrns }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: service
+          spec:
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            forProvider:
+              manifest:
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: {{ $name }}
+                  namespace: {{ $ns }}
+                  labels: {{ toYaml $labels | nindent 22 }}
+                spec:
+                  type: ClusterIP
+                  selector:
+                    app.kubernetes.io/name: {{ $name }}
+                    app.platform.homelab.io/environment: {{ $env }}
+                  ports:
+                    - port: {{ $p.port }}
+                      targetPort: http
+                      protocol: TCP
+                      name: http
+          {{- range $secret := $p.secrets }}
+          ---
+          apiVersion: kubernetes.m.crossplane.io/v1alpha1
+          kind: Object
+          metadata:
+            name: {{ printf "%s-externalsecret-%s" $name ($secret | lower | replace "_" "-") }}
+            namespace: {{ $xrns }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ printf "externalsecret-%s" ($secret | lower | replace "_" "-") }}
+          spec:
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            forProvider:
+              manifest:
+                apiVersion: external-secrets.io/v1beta1
+                kind: ExternalSecret
+                metadata:
+                  name: {{ printf "%s-secret" ($secret | lower | replace "_" "-") }}
+                  namespace: {{ $ns }}
+                  labels: {{ toYaml $labels | nindent 22 }}
+                spec:
+                  refreshInterval: 1h
+                  secretStoreRef:
+                    kind: ClusterSecretStore
+                    name: vault-cluster
+                  target:
+                    name: {{ printf "%s-secret" ($secret | lower | replace "_" "-") }}
+                    creationPolicy: Owner
+                  data:
+                    - secretKey: {{ $secret }}
+                      remoteRef:
+                        key: {{ printf "%s/%s/%s" $name $env $secret }}
+          {{- end }}
+          {{- if eq $p.exposure.type "public" }}
+          ---
+          apiVersion: kubernetes.m.crossplane.io/v1alpha1
+          kind: Object
+          metadata:
+            name: {{ printf "%s-httproute" $name }}
+            namespace: {{ $xrns }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: httproute
+          spec:
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            forProvider:
+              manifest:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: HTTPRoute
+                metadata:
+                  name: {{ $name }}
+                  namespace: {{ $ns }}
+                  labels: {{ toYaml $labels | nindent 22 }}
+                spec:
+                  parentRefs:
+                    - name: main-gateway
+                      namespace: default
+                  hostnames:
+                    - {{ $host | quote }}
+                  rules:
+                    - matches:
+                        - path:
+                            type: PathPrefix
+                            value: /
+                      backendRefs:
+                        - name: {{ $name }}
+                          port: {{ $p.port }}
+          {{- end }}
+      kind: GoTemplate
+      options:
+      - missingkey=error
+      source: Inline
+    step: render-resources
+  revision: 3
+status:
+  conditions:
+  - lastTransitionTime: "2026-05-09T16:44:37Z"
+    observedGeneration: 1
+    reason: ReconcileSuccess
+    status: "True"
+    type: Synced
+  - lastTransitionTime: "2026-05-09T16:44:37Z"
+    observedGeneration: 1
+    reason: ValidPipeline
+    status: "True"
+    type: ValidPipeline

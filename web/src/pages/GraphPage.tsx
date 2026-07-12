@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Background,
   Controls,
@@ -6,90 +7,238 @@ import {
   ReactFlow,
   type Edge,
   type NodeTypes,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useGraphStore } from "../store/graphStore";
 import { ResourceNode, type FlowNode } from "../components/graph/ResourceNode";
-import { layoutDAG } from "../components/graph/layout";
+import {
+  NamespaceCard,
+  type NamespaceCardData,
+  type NamespaceCardNode,
+} from "../components/graph/NamespaceCard";
+import { layoutDAG, CARD_WIDTH, CARD_HEIGHT } from "../components/graph/layout";
 import { DetailDrawer, useSelectedResource } from "../components/drawer/DetailDrawer";
 import { Filters, useFilters } from "../components/list/Filters";
-import type { GraphNode } from "../types/api";
+import type { GraphNode, HealthState } from "../types/api";
 
-const nodeTypes: NodeTypes = { resource: ResourceNode };
+type AppNode = FlowNode | NamespaceCardNode;
+
+const nodeTypes: NodeTypes = { resource: ResourceNode, nsCard: NamespaceCard };
 
 const PKG_TYPES = new Set(["provider", "function", "configuration"]);
+const CLUSTER_NS = "(cluster-scoped)";
 
+const SEVERITY: Record<HealthState, number> = {
+  Unhealthy: 4,
+  Unknown: 3,
+  Progressing: 2,
+  Healthy: 1,
+  NA: 0,
+};
+
+const GRID_COLS = 4;
+const GRID_GAP = 24;
+const SECTION_GAP = 64;
+
+// ArgoCD-style graph: one tile per namespace; clicking a tile expands it into
+// that namespace's left-to-right resource tree (tile → root XRs → children).
 export function GraphPage() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
-  const topologyVersion = useGraphStore((s) => s.topologyVersion);
   const { selected, select } = useSelectedResource();
   const filters = useFilters();
   const [showPackages, setShowPackages] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const flowRef = useRef<ReactFlowInstance<AppNode, Edge> | null>(null);
 
-  // Filter nodes: subtree-preserving namespace/kind/health filters on roots.
-  const visible = useMemo(() => {
-    const keep = new Set<string>();
-    const childrenOf = new Map<string, string[]>();
-    const hasParent = new Set<string>();
-    for (const e of edges.values()) {
-      childrenOf.set(e.from, [...(childrenOf.get(e.from) ?? []), e.to]);
-      hasParent.add(e.to);
-    }
-    const mark = (id: string) => {
-      if (keep.has(id)) return;
-      keep.add(id);
-      for (const c of childrenOf.get(id) ?? []) mark(c);
-    };
+  const expanded = useMemo(
+    () => new Set((params.get("expanded") ?? "").split(",").filter(Boolean)),
+    [params],
+  );
+  const toggleNamespace = (ns: string) => {
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const set = new Set((next.get("expanded") ?? "").split(",").filter(Boolean));
+        if (set.has(ns)) set.delete(ns);
+        else set.add(ns);
+        if (set.size > 0) next.set("expanded", [...set].join(","));
+        else next.delete("expanded");
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  // Deep links (search palette, drawer child links) auto-expand the
+  // selected node's namespace so the node is actually visible.
+  useEffect(() => {
+    if (!selected) return;
+    const node = nodes.get(selected);
+    if (!node) return;
+    const ns = node.namespace || CLUSTER_NS;
+    if (!expanded.has(ns)) toggleNamespace(ns);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, nodes]);
+
+  // Group filtered nodes by namespace; cluster-scoped objects live under a
+  // pseudo-group, packages only when toggled on.
+  const groups = useMemo(() => {
+    const byNS = new Map<string, GraphNode[]>();
     for (const n of nodes.values()) {
-      if (hasParent.has(n.id)) continue;
       if (PKG_TYPES.has(n.nodeType) && !showPackages) continue;
-      if (filters.namespace && n.namespace !== filters.namespace) continue;
       if (filters.kind && n.kind !== filters.kind) continue;
       if (filters.health && n.aggregate !== filters.health) continue;
-      mark(n.id);
+      const ns = n.namespace || CLUSTER_NS;
+      if (filters.namespace && ns !== filters.namespace) continue;
+      byNS.set(ns, [...(byNS.get(ns) ?? []), n]);
     }
-    return keep;
-  }, [nodes, edges, filters.namespace, filters.kind, filters.health, showPackages]);
+    return new Map([...byNS.entries()].sort((a, b) => a[0].localeCompare(b[0])));
+  }, [nodes, filters.namespace, filters.kind, filters.health, showPackages]);
 
-  // Layout re-runs only when topology or filters change — never on
-  // health-only deltas, so the graph doesn't jump under the user.
-  const [laidOut, setLaidOut] = useState<FlowNode[]>([]);
-  useEffect(() => {
-    const flowNodes: FlowNode[] = [];
-    for (const n of nodes.values()) {
-      if (!visible.has(n.id)) continue;
-      flowNodes.push({
-        id: n.id,
-        type: "resource",
-        position: { x: 0, y: 0 },
-        data: { resource: n },
-      });
+  const expandedKey = [...expanded].sort().join(",");
+
+  // Stable identity for group MEMBERSHIP (namespace → node IDs). `groups`
+  // itself is a fresh Map on every SSE delta; keying the layout effect on
+  // membership keeps health-only updates from re-running dagre + fitView.
+  const membershipKey = useMemo(() => {
+    const parts: string[] = [];
+    for (const [ns, members] of groups) {
+      parts.push(`${ns}:${members.map((m) => m.id).sort().join(",")}`);
     }
-    const flowEdges = toFlowEdges(edges, visible);
-    setLaidOut(layoutDAG(flowNodes, flowEdges));
+    return parts.join("|");
+  }, [groups]);
+
+  // Layout: collapsed tiles in a grid on top; each expanded namespace becomes
+  // its own LR dagre section stacked below. Re-runs only on topology, filter
+  // or expand changes — never on health-only deltas.
+  const [laidOut, setLaidOut] = useState<{ nodes: AppNode[]; edges: Edge[] }>({
+    nodes: [],
+    edges: [],
+  });
+  useEffect(() => {
+    const outNodes: AppNode[] = [];
+    const outEdges: Edge[] = [];
+
+    const collapsed = [...groups.keys()].filter((ns) => !expanded.has(ns));
+    collapsed.forEach((ns, i) => {
+      outNodes.push({
+        id: `ns:${ns}`,
+        type: "nsCard",
+        position: {
+          x: (i % GRID_COLS) * (CARD_WIDTH + GRID_GAP),
+          y: Math.floor(i / GRID_COLS) * (CARD_HEIGHT + GRID_GAP),
+        },
+        data: buildCardData(ns, groups.get(ns) ?? [], false),
+      });
+    });
+    let offsetY =
+      collapsed.length > 0
+        ? Math.ceil(collapsed.length / GRID_COLS) * (CARD_HEIGHT + GRID_GAP) + SECTION_GAP
+        : 0;
+
+    for (const ns of groups.keys()) {
+      if (!expanded.has(ns)) continue;
+      const members = groups.get(ns) ?? [];
+      const memberIDs = new Set(members.map((n) => n.id));
+      const sectionNodes: AppNode[] = [
+        {
+          id: `ns:${ns}`,
+          type: "nsCard",
+          position: { x: 0, y: 0 },
+          data: buildCardData(ns, members, true),
+        },
+        ...members.map(
+          (n): FlowNode => ({
+            id: n.id,
+            type: "resource",
+            position: { x: 0, y: 0 },
+            data: { resource: n },
+          }),
+        ),
+      ];
+      const sectionEdges: Edge[] = [];
+      const hasParent = new Set<string>();
+      for (const e of edges.values()) {
+        if (memberIDs.has(e.from) && memberIDs.has(e.to)) {
+          hasParent.add(e.to);
+          sectionEdges.push({
+            id: e.id,
+            source: e.from,
+            target: e.to,
+            animated: !e.validated,
+            style: e.validated ? undefined : { strokeDasharray: "6 3" },
+          });
+        }
+      }
+      for (const n of members) {
+        if (!hasParent.has(n.id)) {
+          sectionEdges.push({
+            id: `ns-edge:${ns}:${n.id}`,
+            source: `ns:${ns}`,
+            target: n.id,
+            style: { strokeDasharray: "2 4", stroke: "#d4d4d8" },
+          });
+        }
+      }
+      const section = layoutDAG(sectionNodes, sectionEdges);
+      for (const n of section.nodes) {
+        outNodes.push({ ...n, position: { x: n.position.x, y: n.position.y + offsetY } });
+      }
+      outEdges.push(...sectionEdges);
+      offsetY += section.height + SECTION_GAP;
+    }
+
+    setLaidOut({ nodes: outNodes, edges: outEdges });
+    requestAnimationFrame(() => flowRef.current?.fitView({ padding: 0.15, duration: 300 }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topologyVersion, visible]);
+  }, [membershipKey, expandedKey]);
 
   // Health/data updates flow into the laid-out nodes without moving them.
   const flowNodes = useMemo(
     () =>
-      laidOut
-        .filter((fn) => nodes.has(fn.id))
-        .map((fn) => ({
-          ...fn,
-          data: { resource: nodes.get(fn.id) as GraphNode },
-          selected: fn.id === selected,
-        })),
-    [laidOut, nodes, selected],
+      laidOut.nodes
+        .map((fn): AppNode | null => {
+          if (fn.type === "nsCard") {
+            const ns = fn.id.slice(3);
+            const members = groups.get(ns);
+            return members
+              ? { ...(fn as NamespaceCardNode), data: buildCardData(ns, members, expanded.has(ns)) }
+              : null;
+          }
+          const live = nodes.get(fn.id);
+          return live
+            ? { ...(fn as FlowNode), data: { resource: live }, selected: fn.id === selected }
+            : null;
+        })
+        .filter((n): n is AppNode => n !== null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [laidOut, nodes, groups, selected, expandedKey],
   );
-  const flowEdges = useMemo(() => toFlowEdges(edges, visible), [edges, visible]);
 
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-3 border-b border-zinc-200 bg-white px-4 py-2">
           <Filters {...filters} />
+          {expanded.size > 0 && (
+            <button
+              onClick={() =>
+                setParams(
+                  (prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.delete("expanded");
+                    return next;
+                  },
+                  { replace: true },
+                )
+              }
+              className="rounded-md border border-zinc-200 px-2.5 py-1 text-xs text-zinc-500 hover:bg-zinc-50"
+            >
+              Collapse all
+            </button>
+          )}
           <label className="ml-auto flex items-center gap-1.5 text-xs text-zinc-600">
             <input
               type="checkbox"
@@ -100,11 +249,17 @@ export function GraphPage() {
           </label>
         </div>
         <div className="min-h-0 flex-1">
-          <ReactFlow
+          <ReactFlow<AppNode, Edge>
             nodes={flowNodes}
-            edges={flowEdges}
+            edges={laidOut.edges}
             nodeTypes={nodeTypes}
-            onNodeClick={(_, node) => select(node.id)}
+            onInit={(instance) => {
+              flowRef.current = instance;
+            }}
+            onNodeClick={(_, node) => {
+              if (node.type === "nsCard") toggleNamespace(node.id.slice(3));
+              else select(node.id);
+            }}
             onPaneClick={() => select(null)}
             fitView
             minZoom={0.1}
@@ -124,17 +279,27 @@ export function GraphPage() {
   );
 }
 
-function toFlowEdges(edges: Map<string, import("../types/api").GraphEdge>, visible: Set<string>): Edge[] {
-  const out: Edge[] = [];
-  for (const e of edges.values()) {
-    if (!visible.has(e.from) || !visible.has(e.to)) continue;
-    out.push({
-      id: e.id,
-      source: e.from,
-      target: e.to,
-      animated: !e.validated,
-      style: e.validated ? undefined : { strokeDasharray: "6 3" },
-    });
+function buildCardData(
+  ns: string,
+  members: GraphNode[],
+  isExpanded: boolean,
+): NamespaceCardData {
+  let xr = 0;
+  let mr = 0;
+  let other = 0;
+  let agg: HealthState = "NA";
+  for (const n of members) {
+    if (n.nodeType === "xr") xr++;
+    else if (n.nodeType === "mr") mr++;
+    else other++;
+    if (SEVERITY[n.aggregate] > SEVERITY[agg]) agg = n.aggregate;
   }
-  return out;
+  return {
+    namespace: ns,
+    xrCount: xr,
+    mrCount: mr,
+    otherCount: other,
+    aggregate: agg,
+    expanded: isExpanded,
+  };
 }

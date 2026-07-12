@@ -92,6 +92,64 @@ func TestClassify(t *testing.T) {
 			crd:    crd("httproutes.gateway.networking.k8s.io", "gateway.networking.k8s.io", "HTTPRoute", "httproutes", "Namespaced", nil, "v1", true),
 			wantOK: false,
 		},
+		{
+			name:    "XRD is an extension type",
+			crd:     crd("compositeresourcedefinitions.apiextensions.crossplane.io", "apiextensions.crossplane.io", "CompositeResourceDefinition", "compositeresourcedefinitions", "Cluster", nil, "v2", true),
+			wantOK:  true,
+			wantCat: CategoryExtension,
+			wantGVR: schema.GroupVersionResource{Group: "apiextensions.crossplane.io", Version: "v2", Resource: "compositeresourcedefinitions"},
+			wantNS:  false,
+		},
+		{
+			name:    "Composition is an extension type",
+			crd:     crd("compositions.apiextensions.crossplane.io", "apiextensions.crossplane.io", "Composition", "compositions", "Cluster", nil, "v1", true),
+			wantOK:  true,
+			wantCat: CategoryExtension,
+			wantGVR: schema.GroupVersionResource{Group: "apiextensions.crossplane.io", Version: "v1", Resource: "compositions"},
+			wantNS:  false,
+		},
+		{
+			name:    "CompositionRevision is an extension type",
+			crd:     crd("compositionrevisions.apiextensions.crossplane.io", "apiextensions.crossplane.io", "CompositionRevision", "compositionrevisions", "Cluster", nil, "v1", true),
+			wantOK:  true,
+			wantCat: CategoryExtension,
+			wantGVR: schema.GroupVersionResource{Group: "apiextensions.crossplane.io", Version: "v1", Resource: "compositionrevisions"},
+			wantNS:  false,
+		},
+		{
+			name:   "other apiextensions.crossplane.io kinds ignored",
+			crd:    crd("usages.apiextensions.crossplane.io", "apiextensions.crossplane.io", "Usage", "usages", "Cluster", nil, "v1beta1", true),
+			wantOK: false,
+		},
+		{
+			name:    "providerconfig by category (aws style)",
+			crd:     crd("providerconfigs.aws.m.upbound.io", "aws.m.upbound.io", "ProviderConfig", "providerconfigs", "Namespaced", []string{"crossplane", "providerconfig", "aws"}, "v1beta1", true),
+			wantOK:  true,
+			wantCat: CategoryProviderConfig,
+			wantGVR: schema.GroupVersionResource{Group: "aws.m.upbound.io", Version: "v1beta1", Resource: "providerconfigs"},
+			wantNS:  true,
+		},
+		{
+			name:    "clusterproviderconfig by kind despite 'provider' category (provider-kubernetes quirk)",
+			crd:     crd("clusterproviderconfigs.kubernetes.m.crossplane.io", "kubernetes.m.crossplane.io", "ClusterProviderConfig", "clusterproviderconfigs", "Cluster", []string{"crossplane", "provider", "kubernetes"}, "v1alpha1", true),
+			wantOK:  true,
+			wantCat: CategoryProviderConfig,
+			wantGVR: schema.GroupVersionResource{Group: "kubernetes.m.crossplane.io", Version: "v1alpha1", Resource: "clusterproviderconfigs"},
+			wantNS:  false,
+		},
+		{
+			name:   "providerconfigusage excluded even with providerconfig category",
+			crd:    crd("providerconfigusages.aws.m.upbound.io", "aws.m.upbound.io", "ProviderConfigUsage", "providerconfigusages", "Namespaced", []string{"crossplane", "providerconfig", "aws"}, "v1beta1", true),
+			wantOK: false,
+		},
+		{
+			name:    "operation kinds are operation category",
+			crd:     crd("cronoperations.ops.crossplane.io", "ops.crossplane.io", "CronOperation", "cronoperations", "Namespaced", nil, "v1alpha1", true),
+			wantOK:  true,
+			wantCat: CategoryOperation,
+			wantGVR: schema.GroupVersionResource{Group: "ops.crossplane.io", Version: "v1alpha1", Resource: "cronoperations"},
+			wantNS:  true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -119,6 +177,22 @@ func TestClassifyLiveFixtures(t *testing.T) {
 	info, ok = Classify(xrCRD)
 	if !ok || info.Category != CategoryComposite || !info.Namespaced {
 		t.Errorf("live XR CRD classify = %+v ok=%v, want composite+namespaced", info, ok)
+	}
+	// The live App CRD defines printer columns (SYNCED/READY/COMPOSITION/... ).
+	if len(info.PrinterColumns) == 0 {
+		t.Fatal("live XR CRD should yield printer columns")
+	}
+	names := map[string]string{}
+	for _, c := range info.PrinterColumns {
+		names[c.Name] = c.JSONPath
+	}
+	if names["READY"] == "" || names["SYNCED"] == "" || names["COMPOSITION"] == "" {
+		t.Errorf("printer columns missing expected entries: %v", names)
+	}
+	for _, c := range info.PrinterColumns {
+		if c.Name == "COMPOSITIONREVISION" && c.Priority != 1 {
+			t.Errorf("COMPOSITIONREVISION priority = %d, want 1", c.Priority)
+		}
 	}
 }
 

@@ -1,0 +1,21 @@
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: ClusterProviderConfig
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"kubernetes.m.crossplane.io/v1alpha1","kind":"ClusterProviderConfig","metadata":{"annotations":{"argocd.argoproj.io/sync-wave":"1"},"labels":{"argocd.argoproj.io/instance":"crossplane-platform"},"name":"default"},"spec":{"credentials":{"source":"InjectedIdentity"}}}
+  creationTimestamp: "2026-05-09T16:44:35Z"
+  finalizers:
+  - in-use.crossplane.io
+  generation: 1
+  labels:
+    argocd.argoproj.io/instance: crossplane-platform
+  name: default
+  resourceVersion: "31356630"
+  uid: 1a8fbd16-e409-4c27-be40-61c999c7c561
+spec:
+  credentials:
+    source: InjectedIdentity
+status:
+  users: 12

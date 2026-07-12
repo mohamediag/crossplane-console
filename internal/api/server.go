@@ -60,6 +60,7 @@ func NewServer(s *Server, ready func() bool) http.Handler {
 	mux.HandleFunc("GET /api/resource", s.handleResourceDetail)
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 	mux.HandleFunc("GET /api/meta", s.handleMeta)
+	mux.HandleFunc("GET /api/platform", s.handlePlatform)
 	mux.HandleFunc("GET /api/stream", s.handleStream)
 
 	if s.StaticFS != nil {

@@ -1,6 +1,7 @@
 import type { ResourceDetail } from "../../types/api";
 import { HealthBadge } from "../graph/HealthBadge";
 import { makeNodeId } from "../../lib/ids";
+import { formatAge } from "../../lib/format";
 
 export function ConditionsTab({
   detail,
@@ -9,7 +10,8 @@ export function ConditionsTab({
   detail: ResourceDetail;
   onNavigate: (id: string) => void;
 }) {
-  const { node, conditions, owners, children } = detail;
+  const { node, conditions, owners, children, printerColumns, pipeline, providerConfigRef } =
+    detail;
   return (
     <div className="space-y-5 p-4">
       {node && (
@@ -23,9 +25,56 @@ export function ConditionsTab({
           {node.compositionRevision && (
             <Field label="Composition revision" value={node.compositionRevision} mono />
           )}
+          {providerConfigRef && (
+            <Field
+              label="Provider config"
+              value={`${providerConfigRef.kind ? providerConfigRef.kind + "/" : ""}${providerConfigRef.name}`}
+              mono
+            />
+          )}
           {node.createdAt && (
             <Field label="Created" value={new Date(node.createdAt).toLocaleString()} />
           )}
+        </section>
+      )}
+
+      {(printerColumns ?? []).length > 0 && (
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Columns
+          </h3>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border border-zinc-200 p-3 text-sm">
+            {(printerColumns ?? []).map((c) => (
+              <Field
+                key={c.name}
+                label={c.name}
+                value={c.type === "date" && c.value ? formatAge(c.value) : c.value || "—"}
+                mono={c.type !== "date"}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {(pipeline ?? []).length > 0 && (
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Pipeline
+          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            {(pipeline ?? []).map((p, i) => (
+              <span key={p.step} className="flex items-center gap-2">
+                {i > 0 && <span className="text-zinc-300">→</span>}
+                <span
+                  className="rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-xs text-violet-800"
+                  title={`step: ${p.step}`}
+                >
+                  {p.step}
+                  <span className="ml-1 text-violet-500">({p.function})</span>
+                </span>
+              </span>
+            ))}
+          </div>
         </section>
       )}
 

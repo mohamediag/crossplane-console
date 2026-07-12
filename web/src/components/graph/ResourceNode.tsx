@@ -36,7 +36,7 @@ export function ResourceNode({ data, selected }: NodeProps<FlowNode>) {
     <div
       className={`w-[240px] rounded-lg border-2 px-3 py-2 shadow-sm ${TYPE_STYLES[n.nodeType] ?? TYPE_STYLES.k8s} ${ringClass(n)} ${selected ? "outline outline-2 outline-blue-500" : ""}`}
     >
-      <Handle type="target" position={Position.Top} className="!bg-zinc-400" />
+      <Handle type="target" position={Position.Left} className="!bg-zinc-400" />
       <div className="flex items-center justify-between gap-2">
         <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
           {TYPE_LABELS[n.nodeType] ?? n.nodeType}
@@ -50,7 +50,7 @@ export function ResourceNode({ data, selected }: NodeProps<FlowNode>) {
         {n.kind}
         {n.namespace ? ` · ${n.namespace}` : ""}
       </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-zinc-400" />
+      <Handle type="source" position={Position.Right} className="!bg-zinc-400" />
     </div>
   );
 }

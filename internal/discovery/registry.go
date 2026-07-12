@@ -19,14 +19,32 @@ const (
 	CategoryManaged   Category = "managed"   // spec.names.categories contains "managed"
 	CategoryComposite Category = "composite" // spec.names.categories contains "composite"
 	CategoryPackage   Category = "package"   // pkg.crossplane.io Provider/Function/Configuration
+	// CategoryExtension covers the apiextensions.crossplane.io platform layer
+	// (XRDs, Compositions, CompositionRevisions). Watched for the Platform
+	// explorer but never fed into the resource graph.
+	CategoryExtension Category = "extension"
+	// CategoryProviderConfig covers provider (Cluster)ProviderConfigs.
+	CategoryProviderConfig Category = "providerconfig"
+	// CategoryOperation covers ops.crossplane.io Operation kinds (v2).
+	CategoryOperation Category = "operation"
 )
+
+// PrinterColumn is one additionalPrinterColumns entry from a CRD's storage
+// version — the same columns kubectl renders for `kubectl get <type>`.
+type PrinterColumn struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"` // string|integer|number|boolean|date
+	JSONPath string `json:"jsonPath"`
+	Priority int64  `json:"priority,omitempty"` // >0 = wide-only, skipped by the UI
+}
 
 // TypeInfo describes one watchable Crossplane type (storage version).
 type TypeInfo struct {
-	GVR        schema.GroupVersionResource
-	Kind       string
-	Namespaced bool
-	Category   Category
+	GVR            schema.GroupVersionResource
+	Kind           string
+	Namespaced     bool
+	Category       Category
+	PrinterColumns []PrinterColumn
 }
 
 // Registry tracks classified, Established CRDs. Feed it CRD objects via
@@ -111,6 +129,23 @@ func (r *Registry) Lookup(apiVersion, kind string) (watched bool, namespaced boo
 	return false, true
 }
 
+// InfoFor returns the registered TypeInfo for (apiVersion, kind), matched on
+// group+kind like Lookup (refs may name a non-storage served version).
+func (r *Registry) InfoFor(apiVersion, kind string) (TypeInfo, bool) {
+	group := ""
+	if i := strings.Index(apiVersion, "/"); i >= 0 {
+		group = apiVersion[:i]
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, info := range r.types {
+		if info.GVR.Group == group && info.Kind == kind {
+			return info, true
+		}
+	}
+	return TypeInfo{}, false
+}
+
 // Types returns a copy of all registered types.
 func (r *Registry) Types() []TypeInfo {
 	r.mu.RLock()
@@ -148,23 +183,45 @@ func Classify(u *unstructured.Unstructured) (TypeInfo, bool) {
 	case group == "pkg.crossplane.io" &&
 		(kind == "Provider" || kind == "Function" || kind == "Configuration"):
 		category = CategoryPackage
+	case group == "apiextensions.crossplane.io" &&
+		(kind == "CompositeResourceDefinition" || kind == "Composition" ||
+			kind == "CompositionRevision"):
+		category = CategoryExtension
+	case isProviderConfigKind(kind, categories):
+		category = CategoryProviderConfig
+	case group == "ops.crossplane.io" &&
+		(kind == "Operation" || kind == "CronOperation" || kind == "WatchOperation"):
+		category = CategoryOperation
 	default:
 		return TypeInfo{}, false
 	}
 
-	version := storageVersion(u)
+	version, columns := storageVersion(u)
 	if version == "" || plural == "" {
 		return TypeInfo{}, false
 	}
 	return TypeInfo{
-		GVR:        schema.GroupVersionResource{Group: group, Version: version, Resource: plural},
-		Kind:       kind,
-		Namespaced: scope != "Cluster",
-		Category:   category,
+		GVR:            schema.GroupVersionResource{Group: group, Version: version, Resource: plural},
+		Kind:           kind,
+		Namespaced:     scope != "Cluster",
+		Category:       category,
+		PrinterColumns: columns,
 	}, true
 }
 
-func storageVersion(u *unstructured.Unstructured) string {
+// isProviderConfigKind matches (Cluster)ProviderConfig CRDs. Some providers
+// use the "providerconfig" category (aws), others just "provider"
+// (provider-kubernetes) — so match kind names too, and always exclude the
+// ProviderConfigUsage bookkeeping kinds.
+func isProviderConfigKind(kind string, categories []string) bool {
+	if strings.HasSuffix(kind, "Usage") {
+		return false
+	}
+	return kind == "ProviderConfig" || kind == "ClusterProviderConfig" ||
+		contains(categories, "providerconfig")
+}
+
+func storageVersion(u *unstructured.Unstructured) (string, []PrinterColumn) {
 	versions, _, _ := unstructured.NestedSlice(u.Object, "spec", "versions")
 	for _, v := range versions {
 		m, ok := v.(map[string]interface{})
@@ -173,10 +230,38 @@ func storageVersion(u *unstructured.Unstructured) string {
 		}
 		if storage, _ := m["storage"].(bool); storage {
 			name, _ := m["name"].(string)
-			return name
+			return name, printerColumns(m)
 		}
 	}
-	return ""
+	return "", nil
+}
+
+func printerColumns(version map[string]interface{}) []PrinterColumn {
+	raw, ok := version["additionalPrinterColumns"].([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]PrinterColumn, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		c := PrinterColumn{}
+		c.Name, _ = m["name"].(string)
+		c.Type, _ = m["type"].(string)
+		c.JSONPath, _ = m["jsonPath"].(string)
+		switch p := m["priority"].(type) {
+		case int64:
+			c.Priority = p
+		case float64:
+			c.Priority = int64(p)
+		}
+		if c.Name != "" && c.JSONPath != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func established(u *unstructured.Unstructured) bool {

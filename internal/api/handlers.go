@@ -160,7 +160,30 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
 	if end > total {
 		end = total
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"total": total, "items": items[offset:end]})
+	page := items[offset:end]
+	resp := map[string]any{"total": total, "items": page}
+
+	// Kind-filtered listing of a watched type: include that CRD's printer
+	// columns evaluated for each row (what kubectl get <kind> shows).
+	if kind != "" && len(page) > 0 {
+		if info, ok := s.Registry.InfoFor(page[0].APIVersion, page[0].Kind); ok && len(info.PrinterColumns) > 0 {
+			values := make(map[string][]PrinterValue, len(page))
+			for _, n := range page {
+				if u := s.Manager.GetByCoordinates(n.APIVersion, n.Kind, n.Namespace, n.Name); u != nil {
+					values[n.ID] = EvaluatePrinterColumns(info.PrinterColumns, u)
+				}
+			}
+			cols := []map[string]string{}
+			for _, c := range info.PrinterColumns {
+				if c.Priority == 0 {
+					cols = append(cols, map[string]string{"name": c.Name, "type": c.Type})
+				}
+			}
+			resp["columns"] = cols
+			resp["printerValues"] = values
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 type detailResponse struct {
@@ -169,6 +192,14 @@ type detailResponse struct {
 	YAML       string            `json:"yaml"`
 	Owners     []graph.Ref       `json:"owners"`
 	Children   []*graph.Node     `json:"children"`
+	// PrinterColumns are the CRD's additionalPrinterColumns evaluated for
+	// this object (what kubectl get would show).
+	PrinterColumns []PrinterValue `json:"printerColumns,omitempty"`
+	// Pipeline is the function pipeline of the CompositionRevision that
+	// rendered this XR (XR nodes only).
+	Pipeline []PipelineStep `json:"pipeline,omitempty"`
+	// ProviderConfigRef is the MR's spec.providerConfigRef (MR nodes only).
+	ProviderConfigRef *graph.Ref `json:"providerConfigRef,omitempty"`
 }
 
 // GET /api/resource?id=<node id>
@@ -210,6 +241,23 @@ func (s *Server) handleResourceDetail(w http.ResponseWriter, r *http.Request) {
 				APIVersion: ref.APIVersion, Kind: ref.Kind,
 				Namespace: u.GetNamespace(), Name: ref.Name,
 			})
+		}
+		if info, ok := s.Registry.InfoFor(apiVersion, kind); ok {
+			resp.PrinterColumns = EvaluatePrinterColumns(info.PrinterColumns, u)
+		}
+		if refName := nestedStr(u, "spec", "providerConfigRef", "name"); refName != "" {
+			resp.ProviderConfigRef = &graph.Ref{
+				Kind: nestedStr(u, "spec", "providerConfigRef", "kind"),
+				Name: refName,
+			}
+		}
+	}
+	// XRs: surface the exact function pipeline that rendered this object,
+	// from its pinned CompositionRevision (already in the extension cache).
+	if node != nil && node.NodeType == graph.NodeXR && node.CompositionRevision != "" {
+		if rev := s.Manager.GetByCoordinates(
+			"apiextensions.crossplane.io/v1", "CompositionRevision", "", node.CompositionRevision); rev != nil {
+			resp.Pipeline = pipelineSteps(rev)
 		}
 	}
 	if node != nil {

@@ -1,0 +1,164 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apiextensions.crossplane.io/v2","kind":"CompositeResourceDefinition","metadata":{"annotations":{"argocd.argoproj.io/sync-wave":"2"},"labels":{"argocd.argoproj.io/instance":"crossplane-platform"},"name":"apps.platform.homelab.io"},"spec":{"group":"platform.homelab.io","names":{"kind":"App","plural":"apps"},"scope":"Namespaced","versions":[{"name":"v1alpha1","referenceable":true,"schema":{"openAPIV3Schema":{"properties":{"spec":{"properties":{"parameters":{"properties":{"config":{"additionalProperties":{"type":"string"},"default":{},"type":"object"},"environment":{"enum":["dev","staging","prod"],"type":"string"},"exposure":{"properties":{"host":{"minLength":1,"type":"string"},"type":{"enum":["public","private","none"],"type":"string"}},"required":["type","host"],"type":"object","x-kubernetes-validations":[{"message":"exposure.host is required when exposure.type is public","rule":"self.type != 'public' || size(self.host) \u003e 0"}]},"healthCheck":{"properties":{"liveness":{"minLength":1,"type":"string"},"readiness":{"minLength":1,"type":"string"}},"required":["liveness","readiness"],"type":"object"},"image":{"minLength":1,"type":"string"},"metrics":{"properties":{"enabled":{"type":"boolean"},"path":{"type":"string"}},"required":["enabled","path"],"type":"object"},"name":{"minLength":1,"type":"string"},"owner":{"minLength":1,"type":"string"},"port":{"maximum":65535,"minimum":1,"type":"integer"},"replicas":{"minimum":1,"type":"integer"},"resources":{"properties":{"limits":{"properties":{"cpu":{"type":"string"},"memory":{"type":"string"}},"required":["cpu","memory"],"type":"object"},"requests":{"properties":{"cpu":{"type":"string"},"memory":{"type":"string"}},"required":["cpu","memory"],"type":"object"}},"required":["requests","limits"],"type":"object"},"secrets":{"default":[],"items":{"type":"string"},"type":"array"}},"required":["name","owner","image","environment","port","replicas","resources","exposure","healthCheck","metrics"],"type":"object"}},"required":["parameters"],"type":"object"}},"type":"object"}},"served":true}]}}
+    reconcile.crossplane.io/requested: "1778344841"
+  creationTimestamp: "2026-05-09T16:37:49Z"
+  finalizers:
+  - defined.apiextensions.crossplane.io
+  generation: 1
+  labels:
+    argocd.argoproj.io/instance: crossplane-platform
+  name: apps.platform.homelab.io
+  resourceVersion: "12452553"
+  uid: 9b4ce90d-0b46-460f-b005-481624e406a0
+spec:
+  defaultCompositeDeletePolicy: Background
+  defaultCompositionUpdatePolicy: Automatic
+  group: platform.homelab.io
+  names:
+    kind: App
+    plural: apps
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            properties:
+              parameters:
+                properties:
+                  config:
+                    additionalProperties:
+                      type: string
+                    default: {}
+                    type: object
+                  environment:
+                    enum:
+                    - dev
+                    - staging
+                    - prod
+                    type: string
+                  exposure:
+                    properties:
+                      host:
+                        minLength: 1
+                        type: string
+                      type:
+                        enum:
+                        - public
+                        - private
+                        - none
+                        type: string
+                    required:
+                    - type
+                    - host
+                    type: object
+                    x-kubernetes-validations:
+                    - message: exposure.host is required when exposure.type is public
+                      rule: self.type != 'public' || size(self.host) > 0
+                  healthCheck:
+                    properties:
+                      liveness:
+                        minLength: 1
+                        type: string
+                      readiness:
+                        minLength: 1
+                        type: string
+                    required:
+                    - liveness
+                    - readiness
+                    type: object
+                  image:
+                    minLength: 1
+                    type: string
+                  metrics:
+                    properties:
+                      enabled:
+                        type: boolean
+                      path:
+                        type: string
+                    required:
+                    - enabled
+                    - path
+                    type: object
+                  name:
+                    minLength: 1
+                    type: string
+                  owner:
+                    minLength: 1
+                    type: string
+                  port:
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  replicas:
+                    minimum: 1
+                    type: integer
+                  resources:
+                    properties:
+                      limits:
+                        properties:
+                          cpu:
+                            type: string
+                          memory:
+                            type: string
+                        required:
+                        - cpu
+                        - memory
+                        type: object
+                      requests:
+                        properties:
+                          cpu:
+                            type: string
+                          memory:
+                            type: string
+                        required:
+                        - cpu
+                        - memory
+                        type: object
+                    required:
+                    - requests
+                    - limits
+                    type: object
+                  secrets:
+                    default: []
+                    items:
+                      type: string
+                    type: array
+                required:
+                - name
+                - owner
+                - image
+                - environment
+                - port
+                - replicas
+                - resources
+                - exposure
+                - healthCheck
+                - metrics
+                type: object
+            required:
+            - parameters
+            type: object
+        type: object
+    served: true
+status:
+  conditions:
+  - lastTransitionTime: "2026-05-09T16:40:42Z"
+    observedGeneration: 1
+    reason: WatchingCompositeResource
+    status: "True"
+    type: Established
+  controllers:
+    compositeResourceClaimType:
+      apiVersion: ""
+      kind: ""
+    compositeResourceType:
+      apiVersion: platform.homelab.io/v1alpha1
+      kind: App
