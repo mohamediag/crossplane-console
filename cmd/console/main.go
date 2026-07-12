@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/restmapper"
+	"k8s.io/client-go/tools/cache"
 )
 
 var version = "dev" // set via -ldflags at build time
@@ -95,6 +96,13 @@ func run(log *slog.Logger, kubeconfig, listen string) error {
 
 	// Non-blocking startup report: partial data is fine, silence is not.
 	go func() {
+		// The CRD informer must sync first: it is what discovers Crossplane
+		// types and registers the per-type informers that WaitForSync waits on.
+		// Without this, WaitForSync sees an empty manager and returns true
+		// immediately, reporting "types: 0" before discovery has even run.
+		if !cache.WaitForCacheSync(ctx.Done(), crdInformer.HasSynced) {
+			return // context cancelled during startup
+		}
 		if manager.WaitForSync(ctx, 30*time.Second) {
 			log.Info("all informers synced", "types", len(registry.Types()))
 		} else {
