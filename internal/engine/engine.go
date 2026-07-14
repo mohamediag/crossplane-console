@@ -96,12 +96,13 @@ func (e *Engine) Run(ctx context.Context) {
 func (e *Engine) rebuild() {
 	start := time.Now()
 	next := graph.Build(graph.Input{
-		XRs:      e.manager.ListByCategory(discovery.CategoryComposite),
-		MRs:      e.manager.ListByCategory(discovery.CategoryManaged),
-		Packages: e.manager.ListByCategory(discovery.CategoryPackage),
-		Lookup:   e.registry.Lookup,
-		Now:      time.Now(),
-		Revision: e.revision.Add(1),
+		XRs:          e.manager.ListByCategory(discovery.CategoryComposite),
+		MRs:          e.manager.ListByCategory(discovery.CategoryManaged),
+		Packages:     e.manager.ListByCategory(discovery.CategoryPackage),
+		Compositions: e.manager.ListByCategory(discovery.CategoryExtension),
+		Lookup:       e.registry.Lookup,
+		Now:          time.Now(),
+		Revision:     e.revision.Add(1),
 	})
 
 	e.mu.Lock()

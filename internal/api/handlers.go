@@ -222,6 +222,14 @@ func (s *Server) handleResourceDetail(w http.ResponseWriter, r *http.Request) {
 	node := snap.Nodes[id]
 
 	u := s.Manager.GetByCoordinates(apiVersion, kind, ns, name)
+	if u == nil && node != nil && node.NodeType == graph.NodeComposition {
+		// Composition nodes are projected into their XR's namespace for the
+		// graph, but the real object is cluster-scoped: retry without a ns.
+		u = s.Manager.GetByCoordinates(apiVersion, kind, "", name)
+		if u == nil {
+			u = s.liveGet(r, apiVersion, kind, "", name)
+		}
+	}
 	if u == nil {
 		u = s.liveGet(r, apiVersion, kind, ns, name)
 	}
@@ -232,7 +240,9 @@ func (s *Server) handleResourceDetail(w http.ResponseWriter, r *http.Request) {
 
 	resp := detailResponse{Node: node, Owners: []graph.Ref{}, Children: []*graph.Node{}, Conditions: []graph.Condition{}}
 	if u != nil {
-		resp.Conditions = graph.ExtractConditions(u)
+		if conds := graph.ExtractConditions(u); conds != nil {
+			resp.Conditions = conds
+		}
 		if y, err := yaml.Marshal(u.Object); err == nil {
 			resp.YAML = string(y)
 		}

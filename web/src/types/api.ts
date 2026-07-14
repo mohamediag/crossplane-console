@@ -9,6 +9,7 @@ export type NodeType =
   | "provider"
   | "function"
   | "configuration"
+  | "composition"
   | "missing";
 
 export interface Condition {

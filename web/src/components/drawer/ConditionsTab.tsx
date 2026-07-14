@@ -12,6 +12,9 @@ export function ConditionsTab({
 }) {
   const { node, conditions, owners, children, printerColumns, pipeline, providerConfigRef } =
     detail;
+  const conds = conditions ?? [];
+  const ownerList = owners ?? [];
+  const childList = children ?? [];
   return (
     <div className="space-y-5 p-4">
       {node && (
@@ -82,9 +85,9 @@ export function ConditionsTab({
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
           Conditions
         </h3>
-        {conditions.length === 0 && <p className="text-sm text-zinc-500">No conditions.</p>}
+        {conds.length === 0 && <p className="text-sm text-zinc-500">No conditions.</p>}
         <ul className="space-y-2">
-          {conditions.map((c) => (
+          {conds.map((c) => (
             <li key={c.type} className="rounded-md border border-zinc-200 p-2.5">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-zinc-900">{c.type}</span>
@@ -104,18 +107,18 @@ export function ConditionsTab({
         </ul>
       </section>
 
-      {owners.length > 0 && (
+      {ownerList.length > 0 && (
         <LinkSection title="Owners" onNavigate={onNavigate}>
-          {owners.map((o) => ({
+          {ownerList.map((o) => ({
             id: makeNodeId(o.apiVersion ?? "", o.kind ?? "", o.namespace ?? "", o.name),
             label: `${o.kind}/${o.name}`,
           }))}
         </LinkSection>
       )}
 
-      {children.length > 0 && (
+      {childList.length > 0 && (
         <LinkSection title="Children" onNavigate={onNavigate}>
-          {children.map((c) => ({ id: c.id, label: `${c.kind}/${c.name}`, state: c.health.state }))}
+          {childList.map((c) => ({ id: c.id, label: `${c.kind}/${c.name}`, state: c.health.state }))}
         </LinkSection>
       )}
     </div>

@@ -25,7 +25,8 @@ const (
 	NodeProvider      = "provider"
 	NodeFunction      = "function"
 	NodeConfiguration = "configuration"
-	NodeMissing       = "missing" // referenced by resourceRefs but not found
+	NodeComposition   = "composition" // the Composition an XR resolves to
+	NodeMissing       = "missing"      // referenced by resourceRefs but not found
 )
 
 // Condition is one entry of status.conditions, trimmed to what the UI shows.
@@ -74,7 +75,7 @@ type Edge struct {
 	ID        string `json:"id"`
 	From      string `json:"from"`
 	To        string `json:"to"`
-	Type      string `json:"type"`      // "composes"
+	Type      string `json:"type"`      // "composes" (XR→child) or "uses" (XR→Composition)
 	Validated bool   `json:"validated"` // child ownerReferences point back at parent
 }
 

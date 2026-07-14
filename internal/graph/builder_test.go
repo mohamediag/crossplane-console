@@ -25,21 +25,25 @@ func homelabLookup(apiVersion, kind string) (bool, bool) {
 func TestBuildLiveFixtures(t *testing.T) {
 	xr := testutil.Load(t, "xr-sample-service.yaml")
 	mr := testutil.Load(t, "mr-object-deployment.yaml")
+	comp := testutil.Obj("apiextensions.crossplane.io/v1", "Composition", "", "app-kubernetes")
 
 	snap := Build(Input{
-		XRs:      []*unstructured.Unstructured{xr},
-		MRs:      []*unstructured.Unstructured{mr},
-		Lookup:   homelabLookup,
-		Now:      time.Now(),
-		Revision: 1,
+		XRs:          []*unstructured.Unstructured{xr},
+		MRs:          []*unstructured.Unstructured{mr},
+		Compositions: []*unstructured.Unstructured{comp},
+		Lookup:       homelabLookup,
+		Now:          time.Now(),
+		Revision:     1,
 	})
 
-	// 1 XR + 4 referenced children (1 cached MR + 3 missing placeholders).
-	if got := len(snap.Nodes); got != 5 {
-		t.Fatalf("nodes = %d, want 5", got)
+	// 1 XR + 4 referenced children (1 cached MR + 3 missing placeholders)
+	// + 1 Composition the XR resolves to.
+	if got := len(snap.Nodes); got != 6 {
+		t.Fatalf("nodes = %d, want 6", got)
 	}
-	if got := len(snap.Edges); got != 4 {
-		t.Fatalf("edges = %d, want 4", got)
+	// 4 resourceRefs edges + 1 XR→Composition "uses" edge.
+	if got := len(snap.Edges); got != 5 {
+		t.Fatalf("edges = %d, want 5", got)
 	}
 
 	xrID := NodeID("platform.homelab.io/v1alpha1", "App", "sample-application-dev", "sample-service")
@@ -58,6 +62,24 @@ func TestBuildLiveFixtures(t *testing.T) {
 	}
 	if xrNode.CompositionRevision == "" {
 		t.Errorf("XR composition revision empty, want spec.crossplane.compositionRevisionRef.name")
+	}
+
+	// The Composition node: projected into the XR's namespace, linked by a
+	// validated "uses" edge.
+	compID := NodeID("apiextensions.crossplane.io/v1", "Composition", "sample-application-dev", "app-kubernetes")
+	compNode := snap.Nodes[compID]
+	if compNode == nil {
+		t.Fatalf("Composition node %q missing", compID)
+	}
+	if compNode.NodeType != NodeComposition {
+		t.Errorf("Composition nodeType = %s, want %s", compNode.NodeType, NodeComposition)
+	}
+	compEdge := snap.Edges[EdgeID(xrID, compID)]
+	if compEdge == nil {
+		t.Fatalf("XR→Composition edge missing")
+	}
+	if compEdge.Type != "uses" || !compEdge.Validated {
+		t.Errorf("composition edge = %+v, want type=uses validated=true", compEdge)
 	}
 
 	// The cached MR: healthy, validated edge, external-name surfaced.
@@ -92,6 +114,114 @@ func TestBuildLiveFixtures(t *testing.T) {
 	if e := snap.Edges[EdgeID(xrID, missingID)]; e == nil || e.Validated {
 		t.Errorf("edge to missing child should exist and be unvalidated, got %+v", e)
 	}
+}
+
+// withCompositionRef sets spec.crossplane.compositionRef.name on an XR.
+func withCompositionRef(u *unstructured.Unstructured, name string) *unstructured.Unstructured {
+	_ = unstructured.SetNestedField(u.Object, name, "spec", "crossplane", "compositionRef", "name")
+	return u
+}
+
+func TestBuildCompositionEdges(t *testing.T) {
+	xrAPI := "platform.homelab.io/v1alpha1"
+	compAPI := "apiextensions.crossplane.io/v1"
+
+	t.Run("cached composition becomes a node in the XR's namespace", func(t *testing.T) {
+		xr := withCompositionRef(testutil.Obj(xrAPI, "App", "ns1", "app1"), "my-comp")
+		comp := testutil.Obj(compAPI, "Composition", "", "my-comp")
+
+		s := Build(Input{
+			XRs:          []*unstructured.Unstructured{xr},
+			Compositions: []*unstructured.Unstructured{comp},
+			Lookup:       homelabLookup,
+			Now:          time.Now(),
+			Revision:     1,
+		})
+
+		xrID := NodeID(xrAPI, "App", "ns1", "app1")
+		compID := NodeID(compAPI, "Composition", "ns1", "my-comp") // projected into ns1
+		n := s.Nodes[compID]
+		if n == nil {
+			t.Fatalf("composition node %q missing", compID)
+		}
+		if n.NodeType != NodeComposition {
+			t.Errorf("nodeType = %s, want %s", n.NodeType, NodeComposition)
+		}
+		if n.Namespace != "ns1" {
+			t.Errorf("namespace = %q, want ns1 (projected)", n.Namespace)
+		}
+		e := s.Edges[EdgeID(xrID, compID)]
+		if e == nil || e.Type != "uses" || !e.Validated {
+			t.Errorf("uses edge = %+v, want type=uses validated=true", e)
+		}
+		// A cached (present) composition must not worsen the XR aggregate.
+		if s.Nodes[xrID].Aggregate == StateUnknown {
+			t.Errorf("XR aggregate = Unknown, cached composition should not poison it")
+		}
+	})
+
+	t.Run("dangling compositionRef becomes a missing node and poisons aggregate", func(t *testing.T) {
+		xr := withCompositionRef(testutil.Obj(xrAPI, "App", "ns1", "app2"), "ghost")
+
+		s := Build(Input{
+			XRs:      []*unstructured.Unstructured{xr},
+			Lookup:   homelabLookup,
+			Now:      time.Now(),
+			Revision: 1,
+		})
+
+		compID := NodeID(compAPI, "Composition", "ns1", "ghost")
+		n := s.Nodes[compID]
+		if n == nil {
+			t.Fatalf("dangling composition node %q missing", compID)
+		}
+		if n.NodeType != NodeMissing || n.Health.State != StateUnknown {
+			t.Errorf("dangling = %s/%s, want missing/Unknown", n.NodeType, n.Health.State)
+		}
+		xrID := NodeID(xrAPI, "App", "ns1", "app2")
+		if s.Nodes[xrID].Aggregate != StateUnknown {
+			t.Errorf("XR aggregate = %s, want Unknown (poisoned by dangling composition)", s.Nodes[xrID].Aggregate)
+		}
+	})
+
+	t.Run("same composition used by XRs in two namespaces yields two nodes", func(t *testing.T) {
+		xrA := withCompositionRef(testutil.Obj(xrAPI, "App", "nsA", "a"), "shared")
+		xrB := withCompositionRef(testutil.Obj(xrAPI, "App", "nsB", "b"), "shared")
+		comp := testutil.Obj(compAPI, "Composition", "", "shared")
+
+		s := Build(Input{
+			XRs:          []*unstructured.Unstructured{xrA, xrB},
+			Compositions: []*unstructured.Unstructured{comp},
+			Lookup:       homelabLookup,
+			Now:          time.Now(),
+			Revision:     1,
+		})
+
+		if s.Nodes[NodeID(compAPI, "Composition", "nsA", "shared")] == nil {
+			t.Error("composition node for nsA missing")
+		}
+		if s.Nodes[NodeID(compAPI, "Composition", "nsB", "shared")] == nil {
+			t.Error("composition node for nsB missing")
+		}
+	})
+
+	t.Run("XR without compositionRef gets no composition node or edge", func(t *testing.T) {
+		xr := testutil.Obj(xrAPI, "App", "ns1", "plain")
+		s := Build(Input{
+			XRs:      []*unstructured.Unstructured{xr},
+			Lookup:   homelabLookup,
+			Now:      time.Now(),
+			Revision: 1,
+		})
+		if len(s.Edges) != 0 {
+			t.Errorf("edges = %d, want 0", len(s.Edges))
+		}
+		for _, n := range s.Nodes {
+			if n.NodeType == NodeComposition || n.Kind == "Composition" {
+				t.Errorf("unexpected composition node %+v", n)
+			}
+		}
+	})
 }
 
 func TestBuildTable(t *testing.T) {

@@ -163,13 +163,23 @@ export function GraphPage() {
       for (const e of edges.values()) {
         if (memberIDs.has(e.from) && memberIDs.has(e.to)) {
           hasParent.add(e.to);
-          sectionEdges.push({
-            id: e.id,
-            source: e.from,
-            target: e.to,
-            animated: !e.validated,
-            style: e.validated ? undefined : { strokeDasharray: "6 3" },
-          });
+          if (e.type === "uses") {
+            // XR→Composition: authoritative spec relation, distinct amber styling.
+            sectionEdges.push({
+              id: e.id,
+              source: e.from,
+              target: e.to,
+              style: { stroke: "#f59e0b", strokeDasharray: "1 3" },
+            });
+          } else {
+            sectionEdges.push({
+              id: e.id,
+              source: e.from,
+              target: e.to,
+              animated: !e.validated,
+              style: e.validated ? undefined : { strokeDasharray: "6 3" },
+            });
+          }
         }
       }
       for (const n of members) {

@@ -18,9 +18,13 @@ type Input struct {
 	XRs      []*unstructured.Unstructured
 	MRs      []*unstructured.Unstructured
 	Packages []*unstructured.Unstructured
-	Lookup   TypeLookup
-	Now      time.Time
-	Revision int64
+	// Compositions are the apiextensions.crossplane.io Compositions an XR may
+	// resolve to via spec.crossplane.compositionRef. Only those actually
+	// referenced by an XR become graph nodes.
+	Compositions []*unstructured.Unstructured
+	Lookup       TypeLookup
+	Now          time.Time
+	Revision     int64
 }
 
 // Common cluster-scoped built-in kinds, for namespace-defaulting of refs to
@@ -124,8 +128,69 @@ func Build(in Input) *Snapshot {
 		}
 	}
 
+	addCompositionEdges(s, in, add)
+
 	rollup(s)
 	return s
+}
+
+// addCompositionEdges links each XR to the Composition it resolves to via
+// spec.crossplane.compositionRef. Compositions are cluster-scoped, but we
+// project a node into each referencing XR's namespace so the relation renders
+// inside the namespace-scoped graph. Only Compositions actually referenced by
+// a live XR (and present in the informer cache) become nodes; a dangling
+// compositionRef surfaces as a "missing" node so the gap is visible.
+func addCompositionEdges(s *Snapshot, in Input, add func(*Node) *Node) {
+	if len(in.XRs) == 0 {
+		return
+	}
+	// Index cached Compositions by name (cluster-scoped ⇒ name is unique).
+	compByName := map[string]*unstructured.Unstructured{}
+	for _, u := range in.Compositions {
+		if u.GetKind() == "Composition" {
+			compByName[u.GetName()] = u
+		}
+	}
+
+	for _, u := range in.XRs {
+		ref := compositionRef(u)
+		if ref == nil {
+			continue
+		}
+		parentID := NodeID(u.GetAPIVersion(), u.GetKind(), u.GetNamespace(), u.GetName())
+		ns := u.GetNamespace() // project the Composition alongside its XR
+		compID := NodeID(ref.APIVersion, ref.Kind, ns, ref.Name)
+
+		if _, exists := s.Nodes[compID]; !exists {
+			comp, found := compByName[ref.Name]
+			n := &Node{
+				ID:         compID,
+				APIVersion: ref.APIVersion,
+				Kind:       ref.Kind,
+				Namespace:  ns,
+				Name:       ref.Name,
+				NodeType:   NodeComposition,
+				Health:     Health{State: StateNA},
+			}
+			if !found {
+				// Referenced but absent from cache: dangling ref.
+				n.NodeType = NodeMissing
+				n.Health.State = StateUnknown
+			} else {
+				n.UID = string(comp.GetUID())
+				n.CreatedAt = comp.GetCreationTimestamp().Time
+			}
+			add(n)
+		}
+
+		e := &Edge{
+			ID:   EdgeID(parentID, compID),
+			From: parentID, To: compID,
+			Type:      "uses",
+			Validated: true, // compositionRef is an authoritative spec field
+		}
+		s.Edges[e.ID] = e
+	}
 }
 
 // rollup computes each node's Aggregate as the worst state in its subtree,

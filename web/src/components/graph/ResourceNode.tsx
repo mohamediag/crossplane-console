@@ -11,6 +11,7 @@ const TYPE_LABELS: Record<string, string> = {
   provider: "Provider",
   function: "Function",
   configuration: "Config",
+  composition: "Composition",
   missing: "Missing",
 };
 
@@ -21,6 +22,7 @@ const TYPE_STYLES: Record<string, string> = {
   provider: "border-teal-400 bg-teal-50",
   function: "border-teal-300 bg-white",
   configuration: "border-teal-300 bg-white",
+  composition: "border-amber-400 bg-amber-50",
   missing: "border-dashed border-red-300 bg-red-50",
 };
 
